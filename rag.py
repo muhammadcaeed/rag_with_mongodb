@@ -1,5 +1,9 @@
 from langchain_mongodb import MongoDBAtlasVectorSearch
+from langchain_openai import ChatOpenAI
 from langchain_voyageai import VoyageAIEmbeddings
+from langchain.prompts import PromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.output_parsers import StrOutputParser
 import key_param
 
 dbName = "book_mongodb_chunks"
@@ -23,9 +27,38 @@ def query_data(query):
         },
     )
 
-    results = retriever.invoke(query)
-    print(results)
+    template = """
+    Use the following pieces of context to answer the question at the end.
+    If you don't know the answer, just say that you don't know, don't try to make up an answer.
+    Do not answer the question if there is no given context.
+    Do not answer the question if it is not related to the context.
+    Do not give recommendations to anything other than MongoDB.
+    Context:
+    {context}
+    Question: {question}
+    """
 
+    custom_rag_prompt = PromptTemplate.from_template(template)
+
+    retrieve = {
+        "context": retriever | (lambda docs: "\n\n".join([d.page_content for d in docs])), 
+        "question": RunnablePassthrough()
+        }
+
+    llm = ChatOpenAI(openai_api_key=key_param.LLM_API_KEY, temperature=0)
+
+    response_parser = StrOutputParser()
+
+    rag_chain = (
+        retrieve
+        | custom_rag_prompt
+        | llm
+        | response_parser
+    )
+
+    answer = rag_chain.invoke(query)
     
 
-query_data("When did MongoDB begin supporting multi-document transactions?")
+    return answer
+
+print(query_data("When did MongoDB begin supporting multi-document transactions?"))
